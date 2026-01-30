@@ -65,9 +65,10 @@
     .copy-btn.copied { background: #dcfce7; color: #166534; border-color: #86efac; }
     .copy-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
-    .limit-msg { display: none; padding: 1.25rem; background: #fef2f2; border: 1px solid #fecaca; border-radius: var(--radius); color: #991b1b; font-size: 0.9375rem; margin-bottom: 1rem; }
-    .limit-msg.visible { display: block; }
-    .limit-msg strong { display: block; margin-bottom: 0.25rem; }
+    .free-status { padding: 0.75rem 1rem; background: #eff6ff; border-radius: var(--radius); font-size: 0.875rem; color: var(--text-muted); margin-bottom: 1rem; }
+    .free-status.highlight { background: linear-gradient(135deg, #dbeafe 0%, #eff6ff 100%); }
+    .paid-cta.emphasized { border: 2px solid var(--accent); box-shadow: 0 4px 12px rgba(37,99,235,.15); }
+    .paid-cta .cta.cta-highlight { background: linear-gradient(135deg, var(--accent) 0%, #3b82f6 100%); font-weight: 700; padding: 0.875rem 1.75rem; }
 
     .fresh { padding: 1rem 1.25rem; background: var(--surface); border-radius: var(--radius); border: 1px solid var(--border); font-size: 0.875rem; color: var(--text-muted); margin-bottom: 2rem; }
     .fresh strong { color: var(--text); }
@@ -153,12 +154,8 @@
       <p style="margin-top:1.25rem;">
         <button type="button" class="cta" id="btn-generate">첫 문장 3개 보기</button>
       </p>
+      <div class="free-status" id="free-status" aria-live="polite"></div>
     </section>
-
-    <div class="limit-msg" id="limit-msg" role="alert">
-      <strong>오늘 무료 이용 횟수를 모두 사용하셨습니다.</strong>
-      자주 쓰신다면 아래에서 무제한 이용을 이용해보세요.
-    </div>
 
     <section class="result-section" id="result-section" aria-labelledby="h2-result">
       <h2 id="h2-result">상황별 메일 첫 문장 예시를 바로 고르세요</h2>
@@ -195,7 +192,7 @@
       </dl>
     </section>
 
-    <section class="paid-cta">
+    <section class="paid-cta" id="paid-cta">
       <p>자주 쓰신다면 무제한으로 이용해보세요</p>
       <button type="button" class="cta" id="btn-paid">무제한 사용하기</button>
     </section>
@@ -220,35 +217,40 @@
 
   <script>
   (function() {
-    var DAILY_LIMIT = Infinity; // 테스트용 무제한 (운영 시 3 등으로 변경)
-    var STORAGE_KEY = 'firstline_usage';
-    var STORAGE_DATE_KEY = 'firstline_date';
+    var STORAGE_KEY = 'freeCount';
 
-    function getToday() {
-      var d = new Date();
-      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-    }
-
-    function getUsage() {
+    function getFreeCount() {
       try {
-        var date = localStorage.getItem(STORAGE_DATE_KEY);
-        var today = getToday();
-        if (date !== today) {
-          localStorage.setItem(STORAGE_DATE_KEY, today);
-          localStorage.setItem(STORAGE_KEY, '0');
-          return 0;
-        }
         return parseInt(localStorage.getItem(STORAGE_KEY) || '0', 10);
       } catch (e) { return 0; }
     }
 
-    function incrementUsage() {
+    function setFreeCount(n) {
       try {
-        var n = getUsage() + 1;
         localStorage.setItem(STORAGE_KEY, String(n));
-        localStorage.setItem(STORAGE_DATE_KEY, getToday());
-        return n;
-      } catch (e) { return DAILY_LIMIT; }
+      } catch (e) {}
+    }
+
+    function getFreeStatusText(count) {
+      if (count === 0) return '하루에 3번까지 무료로 사용할 수 있어요';
+      if (count === 1) return '무료 사용 2회 남음';
+      if (count === 2) return '무료 사용 1회 남음';
+      if (count === 3) return '오늘 무료 사용을 모두 사용했습니다 🎉\n필요하면 한 번만 더 사용해보세요';
+      return '더 많이 쓰고 싶다면 무제한으로 이용해보세요';
+    }
+
+    function updateFreeStatus() {
+      var count = getFreeCount();
+      var el = document.getElementById('free-status');
+      var paidEl = document.getElementById('paid-cta');
+      var btnPaid = document.getElementById('btn-paid');
+      if (el) {
+        el.textContent = '';
+        el.innerHTML = getFreeStatusText(count).replace(/\n/g, '<br>');
+        el.classList.toggle('highlight', count >= 3);
+      }
+      if (paidEl) paidEl.classList.toggle('emphasized', count >= 3);
+      if (btnPaid) btnPaid.classList.toggle('cta-highlight', count >= 3);
     }
 
     var templates = {
@@ -558,14 +560,11 @@
     }
 
     function generate() {
-      var usage = getUsage();
-      if (usage >= DAILY_LIMIT) {
-        document.getElementById('limit-msg').classList.add('visible');
-        document.getElementById('result-section').classList.remove('visible');
-        document.getElementById('result-section').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      var count = getFreeCount();
+      if (count >= 3) {
+        document.getElementById('paid-cta').scrollIntoView({ behavior: 'smooth', block: 'center' });
         return;
       }
-      document.getElementById('limit-msg').classList.remove('visible');
       var sel = getSelected();
       var pool = templates[sel.situation] && templates[sel.situation][sel.tone] && templates[sel.situation][sel.tone][sel.recipient];
       if (!pool || pool.length === 0) {
@@ -573,7 +572,8 @@
       }
       var three = pickThree(pool);
       if (three.length > 0) {
-        incrementUsage();
+        setFreeCount(count + 1);
+        updateFreeStatus();
         renderResults(three);
         document.getElementById('result-section').classList.add('visible');
         document.getElementById('result-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -598,7 +598,7 @@
       document.getElementById('conditions').scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
     document.getElementById('btn-paid').addEventListener('click', function() {
-      document.getElementById('limit-msg').scrollIntoView({ behavior: 'smooth', block: 'center' });
+      document.getElementById('paid-cta').scrollIntoView({ behavior: 'smooth', block: 'center' });
     });
 
     (function setFreshDate() {
@@ -607,6 +607,7 @@
       var d = new Date();
       el.textContent = d.getFullYear() + '년 ' + (d.getMonth() + 1) + '월 ' + d.getDate() + '일';
     })();
+    updateFreeStatus();
   })();
   </script>
 </body>
